@@ -1,141 +1,223 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+window.onload = function() {
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
 
-// Game state
-let isGameOver = false;
+    let isGameOver = false;
+    let score = 0;
 
-// Pipe properties
-let pipes = []; // Array to hold all pipes
-const pipeWidth = 50;
-const pipeGap = 120; // The vertical gap between pipes
-const pipeColor = '#008000'; // Green color for pipes
-const pipeSpeed = 2;
+    // Load Sprites
+    const birdSprites = [new Image(), new Image(), new Image()];
+    birdSprites[0].src = 'assets/bluebird-upflap.png';
+    birdSprites[1].src = 'assets/bluebird-midflap.png';
+    birdSprites[2].src = 'assets/bluebird-downflap.png';
 
-function generatePipes() {
-    // Define a "safe" vertical area to prevent pipes from being too extreme.
-    // We'll leave 50px padding at the top and bottom.
-    const verticalPadding = 50;
-    const safeZone = canvas.height - (verticalPadding * 2) - pipeGap;
-    
-    // Get a random starting Y-position for the top of the gap within the safe zone.
-    const gapTopY = (Math.random() * safeZone) + verticalPadding;
-    const topPipeHeight = gapTopY;
-    const bottomPipeY = gapTopY + pipeGap;
-    
-    // Add the top pipe to the array
-    pipes.push({
-        x: canvas.width,
+    const pipeSprite = new Image();
+    pipeSprite.src = 'assets/pipe-green.png';
+
+    const bgSprite = new Image();
+    bgSprite.src = 'assets/background-day.png';
+
+    const groundSprite = new Image();
+    groundSprite.src = 'assets/base.png';
+
+    // Load Sounds
+    const sfx = {
+        wing: new Audio('assets/wing.wav'),
+        point: new Audio('assets/point.wav'),
+        hit: new Audio('assets/hit.wav')
+    };
+
+    let assetsLoaded = 0;
+    const totalAssets = 6; // Total number of images
+    const onAssetLoad = () => {
+        assetsLoaded++;
+        if (assetsLoaded === totalAssets) {
+            // All assets are loaded, start the game
+            gameLoop();
+        }
+    };
+
+    birdSprites.forEach((sprite, index) => {
+        sprite.onload = () => {
+            console.log(`Bird sprite ${index} loaded: ${sprite.width} x ${sprite.height}`);
+            onAssetLoad();
+        };
+    });
+    pipeSprite.onload = () => { console.log(`Pipe sprite loaded: ${pipeSprite.width} x ${pipeSprite.height}`); onAssetLoad(); };
+    bgSprite.onload = () => { console.log(`Background sprite loaded: ${bgSprite.width} x ${bgSprite.height}`); onAssetLoad(); };
+    groundSprite.onload = () => { console.log(`Ground sprite loaded: ${groundSprite.width} x ${groundSprite.height}`); onAssetLoad(); };
+
+
+    // Bird properties (Updated for new sprites)
+    const bird = {
+        x: 50,
+        y: 150,
+        width: 34,  // Use dimensions from console log
+        height: 24, // Use dimensions from console log
+        velocityY: 0,
+        gravity: 0.30,
+        flapStrength: -6,
+        frame: 0,
+        maxFrame: 2,
+        frameRate: 5,
+        frameCount: 0
+    };
+
+    // Background properties for scrolling
+    const background = {
+        x1: 0,
+        x2: canvas.width,
         y: 0,
-        width: pipeWidth,
-        height: topPipeHeight
-    });
+        width: canvas.width,
+        height: canvas.height
+    };
 
-    // Add the bottom pipe to the array
-    pipes.push({
-        x: canvas.width,
-        y: bottomPipeY,
-        width: pipeWidth,
-        height: canvas.height - bottomPipeY
-    });
-}
+    // Ground properties for scrolling
+    const ground = {
+        x1: 0,
+        x2: canvas.width,
+        y: canvas.height - 112, // 112 is the height of the base.png
+        width: canvas.width,
+        height: 112
+    };
 
-// Bird properties
-const bird = {
-    x: 50,
-    y: 150,
-    width: 20,
-    height: 20,
-    color: '#FFBF00', 
-    velocityY: 0,
-    gravity: 0.2,
-    flapStrength: -5
-};
+    let pipes = [];
+    const pipeWidth = 52; // Width of pipe-green.png
+    const pipeGap = 120;
+    const pipeSpeed = 2;
 
-// This function draws everything on the canvas
-function draw() {
-    // Clear the entire canvas for the next frame
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw the bird
-    ctx.fillStyle = bird.color;
-    ctx.fillRect(bird.x, bird.y, bird.width, bird.height);
+    function generatePipes() {
+        const topPipeHeight = Math.random() * (canvas.height / 3) + 50;
+        const bottomPipeY = topPipeHeight + pipeGap;
 
-    // Draw the pipes
-    ctx.fillStyle = pipeColor;
-    pipes.forEach(pipe => {
-        ctx.fillRect(pipe.x, pipe.y, pipe.width, pipe.height);
-    });
-}
-
-function checkCollisions() {
-    // 1. Ground and ceiling collision
-    if (bird.y + bird.height > canvas.height || bird.y < 0) {
-        isGameOver = true;
+        pipes.push({
+            x: canvas.width,
+            y: 0,
+            width: pipeWidth,
+            height: topPipeHeight,
+            passed: false
+        });
+        pipes.push({
+            x: canvas.width,
+            y: bottomPipeY,
+            width: pipeWidth,
+            height: canvas.height - bottomPipeY - ground.height,
+            passed: false
+        });
     }
 
-    // 2. Pipe collision
-    for (let pipe of pipes) {
-        // Check if bird is within the horizontal and vertical bounds of the pipe
-        if (bird.x < pipe.x + pipe.width &&
-            bird.x + bird.width > pipe.x &&
-            bird.y < pipe.y + pipe.height &&
-            bird.y + bird.height > pipe.y) {
+    function draw() {
+        // Draw scrolling background
+        ctx.drawImage(bgSprite, background.x1, background.y, background.width, background.height);
+        ctx.drawImage(bgSprite, background.x2, background.y, background.width, background.height);
+
+        // Draw pipes
+        pipes.forEach(pipe => {
+            if (pipe.y === 0) { // Top pipe
+                ctx.drawImage(pipeSprite, 0, pipeSprite.height - pipe.height, pipe.width, pipe.height, pipe.x, pipe.y, pipe.width, pipe.height);
+            } else { // Bottom pipe
+                ctx.drawImage(pipeSprite, 0, 0, pipe.width, pipe.height, pipe.x, pipe.y, pipe.width, pipe.height);
+            }
+        });
+
+        // Draw scrolling ground
+        ctx.drawImage(groundSprite, ground.x1, ground.y, ground.width, ground.height);
+        ctx.drawImage(groundSprite, ground.x2, ground.y, ground.width, ground.height);
+
+        // Draw bird
+        ctx.drawImage(birdSprites[bird.frame], bird.x, bird.y, bird.width, bird.height);
+        
+        // Draw score
+        ctx.fillStyle = '#FFF';
+        ctx.font = '30px Arial';
+        ctx.fillText(`Score: ${score}`, 10, 30);
+    }
+
+    function update() {
+        if (isGameOver) return;
+
+        // Bird physics
+        bird.velocityY += bird.gravity;
+        bird.y += bird.velocityY;
+
+        // Bird Animation
+        bird.frameCount++;
+        if (bird.frameCount % bird.frameRate === 0) {
+            bird.frame = (bird.frame + 1) % birdSprites.length;
+        }
+
+        // Background & Ground Scrolling
+        background.x1 -= pipeSpeed / 2;
+        background.x2 -= pipeSpeed / 2;
+        if (background.x1 <= -background.width) background.x1 = background.width;
+        if (background.x2 <= -background.width) background.x2 = background.width;
+
+        ground.x1 -= pipeSpeed;
+        ground.x2 -= pipeSpeed;
+        if (ground.x1 <= -ground.width) ground.x1 = ground.width;
+        if (ground.x2 <= -ground.width) ground.x2 = ground.width;
+        
+        // Pipe movement and scoring
+        pipes.forEach(pipe => {
+            pipe.x -= pipeSpeed;
+            if (!pipe.passed && bird.x > pipe.x + pipe.width) {
+                if (pipe.y === 0) {
+                    score++;
+                    sfx.point.play();
+                }
+                pipe.passed = true;
+            }
+        });
+
+        if (pipes.length > 0 && pipes[0].x < -pipeWidth) {
+            pipes.splice(0, 2);
+        }
+
+        checkCollisions();
+    }
+
+    function checkCollisions() {
+        // Ground collision
+        if (bird.y + bird.height >= ground.y) {
             isGameOver = true;
+            sfx.hit.play();
+        }
+
+        // Pipe collision
+        for (let pipe of pipes) {
+            if (bird.x < pipe.x + pipe.width &&
+                bird.x + bird.width > pipe.x &&
+                bird.y < pipe.y + pipe.height &&
+                bird.y + bird.height > pipe.y) {
+                isGameOver = true;
+                sfx.hit.play();
+            }
         }
     }
-}
 
-// This function updates the game state (physics, positions)
-function update() {
-    // Apply gravity to the bird's vertical velocity
-    bird.velocityY += bird.gravity;
-    // Update the bird's vertical position
-    bird.y += bird.velocityY;
-
-    // Update pipe positions
-    pipes.forEach(pipe => {
-        pipe.x -= pipeSpeed;
-    });
-
-    // Remove pipes that are off-screen to the left
-    // This is important for performance!
-    if (pipes.length > 0 && pipes[0].x < -pipeWidth) {
-        pipes.splice(0, 2); // Remove the pair of pipes
+    function flap() {
+        if (!isGameOver) {
+            bird.velocityY = bird.flapStrength;
+            sfx.wing.play();
+        }
     }
 
-    checkCollisions();
-}
+    document.addEventListener('keydown', event => { if (event.code === 'Space') flap(); });
+    document.addEventListener('mousedown', flap);
+    document.addEventListener('touchstart', flap);
 
-// This function makes the bird "flap"
-function flap(){
-    if(!isGameOver){
-        bird.velocityY = bird.flapStrength;
+    function gameLoop() {
+        update();
+        draw();
+        if (!isGameOver) {
+            requestAnimationFrame(gameLoop);
+        } else {
+            // Game over screen logic will go here
+        }
     }
-}
 
-// Event Listeners for player input
-document.addEventListener('keydown', function(event) {
-    if (event.code === 'Space') {
-        flap();
-    }
-});
-document.addEventListener('mousedown', flap);
-document.addEventListener('touchstart', flap);
-
-// The main game loop
-function gameLoop() {
-    update(); // Update game state
-    draw();   // Draw the new state
-    // Request the browser to call gameLoop again for the next frame
-
-    if(!isGameOver){
-        requestAnimationFrame(gameLoop);
-    }else {
-        console.log("Game Over");
-    }
-}
-
-setInterval(generatePipes, 1500); // Generate pipes every 1.5 seconds
-
-// Start the game loop
-gameLoop();
+    // Generate pipes on an interval
+    setInterval(generatePipes, 1500);
+    // Note: gameLoop() is now started by onAssetLoad when all images are ready
+};
