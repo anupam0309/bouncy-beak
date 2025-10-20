@@ -10,6 +10,7 @@ window.onload = function() {
     };
 
     let score = 0;
+    let highScore = parseInt(localStorage.getItem('bouncyBeakHighScore')) || 0;
 
     // Load Sprites
     const birdSprites = [new Image(), new Image(), new Image()];
@@ -32,6 +33,17 @@ window.onload = function() {
     const gameOverSprite = new Image();
     gameOverSprite.src = 'assets/gameover.png';
 
+    const numberSprites = [];
+    for (let i = 0; i < 10; i++) {
+        numberSprites[i] = new Image();
+        numberSprites[i].src = `assets/${i}.png`;
+    }
+
+    const scoreAsset = new Image();
+    scoreAsset.src = 'assets/score.png';
+    const bestAsset = new Image();
+    bestAsset.src = 'assets/best.png';
+
     // Load Sounds
     const sfx = {
         wing: new Audio('assets/wing.wav'),
@@ -40,7 +52,7 @@ window.onload = function() {
     };
 
     let assetsLoaded = 0;
-    const totalAssets = 8; // Total number of images
+    const totalAssets = 18; // Total number of images
     const onAssetLoad = () => {
         assetsLoaded++;
         if (assetsLoaded === totalAssets) {
@@ -60,7 +72,9 @@ window.onload = function() {
     groundSprite.onload = () => { console.log(`Ground sprite loaded: ${groundSprite.width} x ${groundSprite.height}`); onAssetLoad(); };
     getReadySprite.onload = () => { console.log(`GetReady sprite loaded: ${getReadySprite.width}x${getReadySprite.height}`); onAssetLoad(); };
     gameOverSprite.onload = () => { console.log(`GameOver sprite loaded: ${gameOverSprite.width}x${gameOverSprite.height}`); onAssetLoad(); };
-
+    numberSprites.forEach((sprite, i) => {
+        sprite.onload = () => { console.log(`Number sprite ${i} loaded: ${sprite.width}x${sprite.height}`); onAssetLoad(); };
+    });
 
     // Bird properties (Updated for new sprites)
     const bird = {
@@ -146,13 +160,59 @@ window.onload = function() {
         if (state.current === state.getReady) {
             ctx.drawImage(getReadySprite, (canvas.width - getReadySprite.width) / 2, (canvas.height - getReadySprite.height) / 2);
         } else if (state.current === state.gameOver) {
-            ctx.drawImage(gameOverSprite, (canvas.width - gameOverSprite.width) / 2, (canvas.height - gameOverSprite.height) / 2);
+            // Draw the main "Game Over" message first
+            ctx.drawImage(gameOverSprite, (canvas.width - gameOverSprite.width) / 2, 150);
+
+            const cardX = canvas.width / 2 - 125; // 250px wide card
+            const cardY = 220;
+            const cardWidth = 250;
+            const cardHeight = 120;
+
+            // Draw card background
+            ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
+            ctx.strokeStyle = "#543847";
+            ctx.strokeRect(cardX, cardY, cardWidth, cardHeight);
+
+            // Draw text labels
+            // ctx.fillStyle = '#FF8C00'; // Orange text
+            // ctx.font = '20px Arial';
+            // ctx.fillText("SCORE", cardX + 30, cardY + 45);
+            // ctx.fillText("BEST", cardX + 30, cardY + 85);
+
+            ctx.drawImage(scoreAsset, cardX + 30, cardY + 25); // Adjust position as needed
+            ctx.drawImage(bestAsset, cardX + 30, cardY + 65); // Adjust position as needed
+
+            // Draw scores using our sprite function, right-aligned
+            drawScore(score, cardX + cardWidth - 30, cardY + 25, 'right');
+            drawScore(highScore, cardX + cardWidth - 30, cardY + 65, 'right');
+
+        }
+        
+        // Draw current score during gameplay
+        if (state.current === state.playing) {
+            drawScore(score, canvas.width / 2, 50, 'center');
+        }
+    }
+
+    // New function to draw the score using sprites
+    function drawScore(number, x, y, align = 'center') {
+        const scoreStr = number.toString();
+        const digitWidth = numberSprites[0].width;
+        const totalWidth = scoreStr.length * digitWidth;
+        let startX;
+
+        if (align === 'right') {
+            startX = x - totalWidth;
+        } else { // Default to center align
+            startX = x - totalWidth / 2;
         }
 
-        // Draw score
-        ctx.fillStyle = '#FFF';
-        ctx.font = '30px Arial';
-        ctx.fillText(`Score: ${score}`, 10, 30);
+        for (let i = 0; i < scoreStr.length; i++) {
+            const digit = parseInt(scoreStr[i]);
+            const currentX = startX + i * digitWidth;
+            ctx.drawImage(numberSprites[digit], currentX, y);
+        }
     }
 
     function update() {
@@ -185,8 +245,10 @@ window.onload = function() {
             pipes.forEach(pipe => {
                 pipe.x -= pipeSpeed;
                 if (!pipe.passed && bird.x > pipe.x + pipe.width) {
+                if (pipe.y === 0) {
                     score++;
                     sfx.point.play();
+                }
                     pipe.passed = true;
                 }
             });
@@ -204,7 +266,7 @@ window.onload = function() {
         if (bird.y + bird.height >= ground.y || bird.y <= 0) {
             state.current = state.gameOver;
             sfx.hit.play();
-            clearInterval(pipeGenerator);
+            changeStateToGameOver();
         }
 
         // Pipe collision
@@ -215,8 +277,19 @@ window.onload = function() {
                 bird.y + bird.height > pipe.y) {
                 state.current = state.gameOver;
                 sfx.hit.play();
-                clearInterval(pipeGenerator);
+                changeStateToGameOver();
             }
+        }
+    }
+
+    function changeStateToGameOver() {
+        state.current = state.gameOver;
+        clearInterval(pipeGenerator);
+
+        // Check for new high score and save it
+        if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('bouncyBeakHighScore', highScore);
         }
     }
 
