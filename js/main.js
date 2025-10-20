@@ -1,8 +1,14 @@
 window.onload = function() {
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
+    
+    const state = {
+        current: 0,
+        getReady: 0,
+        playing: 1,
+        gameOver: 2
+    };
 
-    let isGameOver = false;
     let score = 0;
 
     // Load Sprites
@@ -20,6 +26,12 @@ window.onload = function() {
     const groundSprite = new Image();
     groundSprite.src = 'assets/base.png';
 
+    const getReadySprite = new Image();
+    getReadySprite.src = 'assets/message.png';
+
+    const gameOverSprite = new Image();
+    gameOverSprite.src = 'assets/gameover.png';
+
     // Load Sounds
     const sfx = {
         wing: new Audio('assets/wing.wav'),
@@ -28,7 +40,7 @@ window.onload = function() {
     };
 
     let assetsLoaded = 0;
-    const totalAssets = 6; // Total number of images
+    const totalAssets = 8; // Total number of images
     const onAssetLoad = () => {
         assetsLoaded++;
         if (assetsLoaded === totalAssets) {
@@ -46,6 +58,8 @@ window.onload = function() {
     pipeSprite.onload = () => { console.log(`Pipe sprite loaded: ${pipeSprite.width} x ${pipeSprite.height}`); onAssetLoad(); };
     bgSprite.onload = () => { console.log(`Background sprite loaded: ${bgSprite.width} x ${bgSprite.height}`); onAssetLoad(); };
     groundSprite.onload = () => { console.log(`Ground sprite loaded: ${groundSprite.width} x ${groundSprite.height}`); onAssetLoad(); };
+    getReadySprite.onload = () => { console.log(`GetReady sprite loaded: ${getReadySprite.width}x${getReadySprite.height}`); onAssetLoad(); };
+    gameOverSprite.onload = () => { console.log(`GameOver sprite loaded: ${gameOverSprite.width}x${gameOverSprite.height}`); onAssetLoad(); };
 
 
     // Bird properties (Updated for new sprites)
@@ -85,7 +99,7 @@ window.onload = function() {
     const pipeWidth = 52; // Width of pipe-green.png
     const pipeGap = 120;
     const pipeSpeed = 2;
-
+    let pipeGenerator;
 
     function generatePipes() {
         const topPipeHeight = Math.random() * (canvas.height / 3) + 50;
@@ -128,6 +142,13 @@ window.onload = function() {
         // Draw bird
         ctx.drawImage(birdSprites[bird.frame], bird.x, bird.y, bird.width, bird.height);
         
+        // Draw UI based on state
+        if (state.current === state.getReady) {
+            ctx.drawImage(getReadySprite, (canvas.width - getReadySprite.width) / 2, (canvas.height - getReadySprite.height) / 2);
+        } else if (state.current === state.gameOver) {
+            ctx.drawImage(gameOverSprite, (canvas.width - gameOverSprite.width) / 2, (canvas.height - gameOverSprite.height) / 2);
+        }
+
         // Draw score
         ctx.fillStyle = '#FFF';
         ctx.font = '30px Arial';
@@ -135,53 +156,55 @@ window.onload = function() {
     }
 
     function update() {
-        if (isGameOver) return;
-
-        // Bird physics
-        bird.velocityY += bird.gravity;
-        bird.y += bird.velocityY;
-
-        // Bird Animation
-        bird.frameCount++;
-        if (bird.frameCount % bird.frameRate === 0) {
-            bird.frame = (bird.frame + 1) % birdSprites.length;
+        // Bird animation runs in getReady and playing states
+        if (state.current !== state.gameOver) {
+            bird.frameCount++;
+            if (bird.frameCount % bird.frameRate === 0) {
+                bird.frame = (bird.frame + 1) % birdSprites.length;
+            }
         }
 
-        // Background & Ground Scrolling
-        background.x1 -= pipeSpeed / 2;
-        background.x2 -= pipeSpeed / 2;
-        if (background.x1 <= -background.width) background.x1 = background.width;
-        if (background.x2 <= -background.width) background.x2 = background.width;
+        // Ground scrolling runs in all states except gameOver
+        if (state.current !== state.gameOver) {
+            ground.x1 -= pipeSpeed;
+            ground.x2 -= pipeSpeed;
+            if (ground.x1 <= -ground.width) ground.x1 = ground.width;
+            if (ground.x2 <= -ground.width) ground.x2 = ground.width;
+        }
 
-        ground.x1 -= pipeSpeed;
-        ground.x2 -= pipeSpeed;
-        if (ground.x1 <= -ground.width) ground.x1 = ground.width;
-        if (ground.x2 <= -ground.width) ground.x2 = ground.width;
-        
-        // Pipe movement and scoring
-        pipes.forEach(pipe => {
-            pipe.x -= pipeSpeed;
-            if (!pipe.passed && bird.x > pipe.x + pipe.width) {
-                if (pipe.y === 0) {
+        // Logic for playing state
+        if (state.current === state.playing) {
+            bird.velocityY += bird.gravity;
+            bird.y += bird.velocityY;
+
+            background.x1 -= pipeSpeed / 2;
+            background.x2 -= pipeSpeed / 2;
+            if (background.x1 <= -background.width) background.x1 = background.width;
+            if (background.x2 <= -background.width) background.x2 = background.width;
+
+            pipes.forEach(pipe => {
+                pipe.x -= pipeSpeed;
+                if (!pipe.passed && bird.x > pipe.x + pipe.width) {
                     score++;
                     sfx.point.play();
+                    pipe.passed = true;
                 }
-                pipe.passed = true;
+            });
+
+            if (pipes.length > 0 && pipes[0].x < -pipeWidth) {
+                pipes.splice(0, 2);
             }
-        });
 
-        if (pipes.length > 0 && pipes[0].x < -pipeWidth) {
-            pipes.splice(0, 2);
+            checkCollisions();
         }
-
-        checkCollisions();
     }
 
     function checkCollisions() {
         // Ground collision
-        if (bird.y + bird.height >= ground.y) {
-            isGameOver = true;
+        if (bird.y + bird.height >= ground.y || bird.y <= 0) {
+            state.current = state.gameOver;
             sfx.hit.play();
+            clearInterval(pipeGenerator);
         }
 
         // Pipe collision
@@ -190,34 +213,49 @@ window.onload = function() {
                 bird.x + bird.width > pipe.x &&
                 bird.y < pipe.y + pipe.height &&
                 bird.y + bird.height > pipe.y) {
-                isGameOver = true;
+                state.current = state.gameOver;
                 sfx.hit.play();
+                clearInterval(pipeGenerator);
             }
         }
     }
 
-    function flap() {
-        if (!isGameOver) {
-            bird.velocityY = bird.flapStrength;
-            sfx.wing.play();
+    function restartGame() {
+        bird.y = 150;
+        bird.velocityY = 0;
+        pipes = [];
+        score = 0;
+        state.current = state.getReady;
+        clearInterval(pipeGenerator); // Clear any existing interval
+    }
+
+    // Main Click/Tap Handler
+    function handleInput() {
+        switch (state.current) {
+            case state.getReady:
+                state.current = state.playing;
+                pipeGenerator = setInterval(generatePipes, 1500);
+                // Fall-through to flap on the first click
+            case state.playing:
+                bird.velocityY = bird.flapStrength;
+                sfx.wing.play();
+                break;
+            case state.gameOver:
+                restartGame();
+                break;
         }
     }
 
-    document.addEventListener('keydown', event => { if (event.code === 'Space') flap(); });
-    document.addEventListener('mousedown', flap);
-    document.addEventListener('touchstart', flap);
+    document.addEventListener('keydown', event => { if (event.code === 'Space') handleInput(); });
+    document.addEventListener('mousedown', handleInput);
+    document.addEventListener('touchstart', handleInput);
 
     function gameLoop() {
         update();
         draw();
-        if (!isGameOver) {
-            requestAnimationFrame(gameLoop);
-        } else {
-            // Game over screen logic will go here
-        }
+        requestAnimationFrame(gameLoop);
     }
 
-    // Generate pipes on an interval
-    setInterval(generatePipes, 1500);
-    // Note: gameLoop() is now started by onAssetLoad when all images are ready
+    // Initialize game
+    restartGame(); // Start in the 'getReady' state
 };
